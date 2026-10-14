@@ -254,7 +254,8 @@ def combine_consecutive_events(timeseries,event_indices,tol=1,verbose=True,efold
                     next_check = next_exceedance_integr > 0
                 
                 if (np.abs(next_exceedance_integr) > np.abs(current_event_integr)) and (next_check): # Also Check for Negative Values
-                    print("\tAbsolute Value of Next Exceedance Integral > Current Event, splitting...")
+                    if verbose:
+                        print("\tAbsolute Value of Next Exceedance Integral > Current Event, splitting...")
                     event_combine.append(event_merge) # End the previous Event and start anew
                     event_merge = [ievent,] # Start a new event
                     continue
