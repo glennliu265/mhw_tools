@@ -15,6 +15,7 @@ List of Functions
     arr2da                     : Transform output of [id_extremes_arr] from array into DataArray
     combine_consecutive_events : Merge events based on duration and intensity criteria
     cull_events_byduration     : Remove events shorter than the minimum duration
+    get_rolling_threshold      : Compute climatologically varying percentile and tile to original timeseries
     id_extremes_arr            : Identify Events from exceedences of percentile, then merge and get key metrics
     retrieve_event_metrics_arr : Get event metrics given output of [combine_consecutive_events] within [id_extremes_arr]
     
@@ -296,6 +297,28 @@ def cull_events_byduration(dsin,min_duration=5):
     ds['nevents'] = nevents_new
     return ds
 
+def get_rolling_threshold(timeseries,quantiles=[0.10,0.90],monthly=True):
+    "Compute climatologically-varying percentile threshold and tile to original timeseries"
+    
+    if monthly: # Compute Quantiles Grouping by Month
+        thres_bymon = timeseries.groupby('time.month').quantile(quantiles,dim='time')
+    else:       # Compute Quantiles Grouping by Day of Year
+        thres_bymon = timeseries.groupby('time.dayofyear').quantile(quantiles,dim='time')
+    thresholds = []
+    nq         = len(quantiles)
+    for qq in range(nq):
+        thres_in = thres_bymon.isel(quantile=qq)
+        if monthly:
+            thres = xr.ones_like(timeseries).groupby('time.month') * thres_in
+        else:
+            thres = xr.ones_like(timeseries).groupby('time.dayofyear') * thres_in
+        thres = thres.drop_vars('quantile')
+        thresholds.append(thres)
+    
+    thresholds = xr.concat(thresholds,dim='quantile')
+    thresholds['quantile'] = quantiles
+    return thresholds
+
 
 def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
                     verbose=False,tname='max',efolding_cutoff_pct=None,integrated_threshold=False):
@@ -304,22 +327,20 @@ def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
     # # [2026.10.12] Added option to apply integrated threshold criterion
     if eventid_max is None:
         eventid_max = int(len(timeseries)*0.25)
+        # Note that this triggers error with pad_nan if max # of events > eventid_max
+    
     # If NaN, just Continue
     if np.any(np.isnan(timeseries)):
         #print("Skipping NaN")
         dummy=np.zeros(eventid_max) * np.nan
         #output = *[dummy,]*5
-        return dummy,dummy,dummy,dummy,0
+        return dummy,dummy,dummy,dummy,dummy,dummy,dummy,0
     
     # Use Thresholds to find Events 
     if positive == True:
-        below      = False
         event_indices = np.where(timeseries > thres)[0]
     
     else:
-        below      = True
-        # if verbose:
-        #     print("Looking for events below threshold")
         event_indices = np.where(timeseries < thres)[0]
     
     nevents         = len(event_indices)
@@ -327,20 +348,20 @@ def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
     #     print("Identified %i Events" % nevents)
 
     if integrated_threshold:
-        print("Using Integrated Threshold...")
+        if verbose:
+            print("Using Integrated Threshold...")
         event_combine   = combine_consecutive_events(timeseries,event_indices,tol=tol,verbose=verbose,efolding_cutoff_pct=efolding_cutoff_pct,percentile=thres)
     else:
         event_combine   = combine_consecutive_events(timeseries,event_indices,tol=tol,verbose=verbose,efolding_cutoff_pct=efolding_cutoff_pct)
     metrics_out     = retrieve_event_metrics_arr(event_combine,timeseries,tname=tname)
-    # #id_out,values_out,duration,event_mean,event_std,event_cumu = metrics_out
     
     # For Output Variables, Pad with NaN #Enter the Amount
     nevents         = len(metrics_out[0])
-    #npad            = eventid_max-nevents
     metrics_out     = [pad_nan(arr,eventid_max) for arr in metrics_out]
+    
     id_out,values_out,duration,event_mean,event_std,event_cumu,id_first,id_last = metrics_out
     
-    return id_out,values_out,duration,event_mean,event_cumu,nevents,id_first,id_last
+    return id_out,values_out,duration,event_mean,event_cumu,id_first,id_last,nevents
 
 
 
@@ -407,7 +428,7 @@ def retrieve_event_metrics_arr(event_combine,timeseries,tname='max'):
         id_min[ie]       = eventid_loop[idmin]
         
         # Timing (Note this saves to unreadable number...)
-        duration[ie]     = eventid_loop[idlast] - eventid_loop[idfirst] + 1 # Add 1 for inclusive boundary##nconsecutive            # Duration (Note assumes regular spacing...)
+        duration[ie]     = eventid_loop[idlast] - eventid_loop[idfirst] + 1 # Add 1 for inclusive boundary # Duration (Note assumes regular spacing...)
         
         # Statistics
         event_mean[ie]   = np.nanstd(intensities) # Mean
