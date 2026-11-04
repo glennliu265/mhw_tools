@@ -320,12 +320,12 @@ def get_rolling_threshold(timeseries,quantiles=[0.10,0.90],monthly=True):
     thresholds['quantile'] = quantiles
     return thresholds
 
-
 def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
-                    verbose=False,tname='max',efolding_cutoff_pct=None,integrated_threshold=False):
+                    verbose=False,tname='max',efolding_cutoff_pct=None,cumulative_intensity_criterion=None):
     # # [2026.09.23] Updated output work with id_first and id_last
     # # [2026.09.24] Added event cumulative intensity as output
-    # # [2026.10.12] Added option to apply integrated threshold criterion
+    # # [2026.10.12] Added option to apply cumulative_intensity_criterion
+    # # [2026.11.04] Added option to directly supply baseline via [cumulative_intensity_criterion] to calculate cumulative intensity
     if eventid_max is None:
         eventid_max = int(len(timeseries)*0.25)
         # Note that this triggers error with pad_nan if max # of events > eventid_max
@@ -348,10 +348,11 @@ def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
     # if verbose:
     #     print("Identified %i Events" % nevents)
 
-    if integrated_threshold:
+    if cumulative_intensity_criterion is not None:
         if verbose:
             print("Using Integrated Threshold...")
-        event_combine   = combine_consecutive_events(timeseries,event_indices,tol=tol,verbose=verbose,efolding_cutoff_pct=efolding_cutoff_pct,percentile=thres)
+        event_combine   = combine_consecutive_events(timeseries,event_indices,tol=tol,verbose=verbose,efolding_cutoff_pct=efolding_cutoff_pct,
+                                                     percentile=cumulative_intensity_criterion)
     else:
         event_combine   = combine_consecutive_events(timeseries,event_indices,tol=tol,verbose=verbose,efolding_cutoff_pct=efolding_cutoff_pct)
     metrics_out     = retrieve_event_metrics_arr(event_combine,timeseries,tname=tname)
@@ -363,8 +364,6 @@ def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
     id_out,values_out,duration,event_mean,event_std,event_cumu,id_first,id_last = metrics_out
     
     return id_out,values_out,duration,event_mean,event_cumu,id_first,id_last,nevents
-
-
 
 def retrieve_event_metrics_arr(event_combine,timeseries,tname='max'):
     """
