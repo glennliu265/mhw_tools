@@ -68,8 +68,6 @@ def arr2da(metricsout):
     dsout['nevents'] = nevents
     return dsout
 
-
-
 def combine_consecutive_events(timeseries,event_indices,tol=1,verbose=True,efolding_cutoff_pct=0.40,percentile=None):
     """
     Given a timeseries of anomalies and indices of exceendences, merge each into coherent events using a duration tolerance [tol]
@@ -403,11 +401,12 @@ def retrieve_event_metrics_arr(event_combine,timeseries,tname='max'):
     event_cumu    = duration.copy()
     for ie in range(nevents_combined):
         
-        eventid_loop = event_combine[ie]
+        eventid_loop    = event_combine[ie]
+        eventid_indices = np.arange(eventid_loop[0],eventid_loop[-1]+1) # [First, Last]
         
         # Get Variables  ------------------------------------------------
-        intensities    = timeseries[eventid_loop]
-        nconsecutive   = len(eventid_loop)
+        intensities    = timeseries[eventid_indices] #eventid_loop]
+        nconsecutive   = len(eventid_indices) #len(eventid_loop)
         
         # Record Some Metrics -------------------------------------------
         # Determine Some Indices for Metrics
@@ -421,11 +420,11 @@ def retrieve_event_metrics_arr(event_combine,timeseries,tname='max'):
             idcenter     = idcenter - 1
         
         # Index from full timeseries
-        id_center[ie]    = eventid_loop[idcenter]
-        id_first[ie]     = eventid_loop[idfirst]
-        id_last[ie]      = eventid_loop[idlast]
-        id_max[ie]       = eventid_loop[idmax]
-        id_min[ie]       = eventid_loop[idmin]
+        id_center[ie]    = eventid_indices[idcenter]
+        id_first[ie]     = eventid_indices[idfirst]
+        id_last[ie]      = eventid_indices[idlast]
+        id_max[ie]       = eventid_indices[idmax]
+        id_min[ie]       = eventid_indices[idmin]
         
         # Timing (Note this saves to unreadable number...)
         duration[ie]     = eventid_loop[idlast] - eventid_loop[idfirst] + 1 # Add 1 for inclusive boundary # Duration (Note assumes regular spacing...)
