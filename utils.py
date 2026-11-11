@@ -48,7 +48,8 @@ import xarray as xr
 def arr2da(metricsout):
     # Convert output of id_extremes_arr into DataArray
     # [2026.09.23] Updated to work with id_first and id_last
-    outnames = ['id_max','event_max','duration','event_mean','cumulative_intensity','nevents','id_first','id_last']
+    # [2026.11.10] Move nevents to the last position (in line with output order from id_extremes_arr)
+    outnames = ['id_max','event_max','duration','event_mean','cumulative_intensity','id_first','id_last','nevents',]
     id_nevents = outnames.index('nevents')
     nevents  = metricsout[id_nevents]
     eventid  = np.arange(nevents)+1
@@ -68,11 +69,12 @@ def arr2da(metricsout):
     dsout['nevents'] = nevents
     return dsout
 
-def combine_consecutive_events(timeseries,event_indices,tol=1,verbose=True,efolding_cutoff_pct=0.40,percentile=None):
+def combine_consecutive_events(timeseries,event_indices,tol=1,verbose=True,
+                               percentile=None,integration_baseline=None):
     """
     Given a timeseries of anomalies and indices of exceendences, merge each into coherent events using a duration tolerance [tol]
     and an optional integrated intensity if the [percentile] is provided.
-
+    
     Parameters
     ----------
     timeseries : Array/Numeric [time]
@@ -86,13 +88,15 @@ def combine_consecutive_events(timeseries,event_indices,tol=1,verbose=True,efold
         The default is 1 (Int threshold).
     verbose : BOOL, optional 
         True to output verbose comments. The default is True.
-    efolding_cutoff_pct : NUMERIC, optional
-        Percent adjustment applied to e-folding timescale (currently not implemented, commented out). The default is 0.40.
-    percentile : Array/Numeric [time], optional
+    percentile          : Array/Numeric [time], optional
         Percentile values used to identify the exceedances. If supplied, implements integrated intensity criteria. 
         Note that this has only been implemented for positive events. Need to adjust sign for negative check...
-        The default is None.
-
+        The default is None (i.e. do not apply cumulative intensity criteria).
+    integration_baseline : Array/Numeric [time], optional
+        Baseline for computed integrated intensity to the next exceedence. Defaults to using the percentile definition.
+        Note that the integrated intensity for the current event is always computed relative to the [percentile] baseline
+        while the integrated intensity to the next exceedence is computed relative to the [integration_baseline].
+    
     Returns
     -------
     event_combine : Nested list containing indices for each event, 
@@ -124,6 +128,12 @@ def combine_consecutive_events(timeseries,event_indices,tol=1,verbose=True,efold
     
     if percentile is not None: # Get Difference from Percentile
         percentile_anom = timeseries - percentile
+        if integration_baseline is None:
+            if verbose:
+                print("Integration Baseline for cumulative intensity calculation not supplied. Using percentile threshold...")
+            baseline_anom = percentile_anom
+        else:
+            baseline_anom   = timeseries - integration_baseline
     
     # Given a tolerance level, merge consecutive events
     # Separate into discrete events
@@ -163,114 +173,43 @@ def combine_consecutive_events(timeseries,event_indices,tol=1,verbose=True,efold
         dt_since_last_exceedence = ievent - prev_id # Change in time between current index and last index
         
         if (dt_since_last_exceedence <= tol_in) and (len(event_combine) != 0): # Consecutive Event
-        
-            # # Version One ======================== Compare Event Duration to % of E-folding =========================================
-            # # Note --> this doesnt work well because of small initial event durations, Maybe should wait until e-fold skips event duration
-            # # Stop counting events if their total duration is shorter than a given
-            # # percent of the efolding cutoff. Useful for loations with very long e-folding
-            # # artificially merging events short events...
-            # if (use_efolding) and (efolding_cutoff_pct is not None): # Apply Additional Criteria
-            #     if len(event_merge) == 1:
-            #         current_event_duration = 1
-            #     else:
-            #         current_event_duration = event_merge[-1] - event_merge[0] + 1 # Elapsed time since last event
-            #     duration_cutoff        = efolding_cutoff_pct * tol_in
-                
-            #     #print("Time Since Last Exceedence: %2i vs. Current Event Duration: %2i" % (dt_since_last_exceedence,current_event_duration))
-            #     if (current_event_duration < duration_cutoff) and (dt_since_last_exceedence > current_event_duration):
-            #         if verbose:
-            #             print("ievent = %i, event start = %i" % (ievent,event_merge[0]))
-            #             #print("\tEvent at (i=%i) was ended because the current duration (%i) exceeds %.2f (%.2f of the E-Folding Time %.2f)" % (ievent,current_event_duration,duration_cutoff,efolding_cutoff_pct,tol_in))
-                        
-            #             print("\tEvent at (i=%i) was ended because of 2 reasons:" % ievent)
-            #             print("\t\t1. Current duration (%i) < %.2f (%.2f of the E-Folding Time %.2f)" % (current_event_duration,duration_cutoff,efolding_cutoff_pct,tol_in))
-            #             print("\t\t2. Time Elapsed since last event (%i) > current event duration (%i)" % (dt_since_last_exceedence,current_event_duration))
-                    
-            #         event_combine.append(event_merge) # End the previous Event and start anew
-            #         event_merge = [ievent,] # Start a new event
-            #         continue
-            # # END Version One ======================== Compare Event Duration to % of E-folding =========================================
             
-            # # Version Two ======================== Compare Time to Next Event to % of E-Folding =========================================
-            # # Also called "Route 1, confusingly in my presentation slide#
-            # if (use_efolding) and (efolding_cutoff_pct is not None): # Apply Additional Criteria
-            #     if len(event_merge) == 1:
-            #         current_event_duration = 1
-            #     else:
-            #         current_event_duration = event_merge[-1] - event_merge[0] + 1 # Elapsed time since last event
-            #     duration_cutoff        = efolding_cutoff_pct * tol_in
-
-            #     if (dt_since_last_exceedence > duration_cutoff) and (dt_since_last_exceedence > current_event_duration):
-            #         if verbose:
-            #             print("ievent = %i, event start = %i" % (ievent,event_merge[0]))
-            #             #print("\tEvent at (i=%i) was ended because the current duration (%i) exceeds %.2f (%.2f of the E-Folding Time %.2f)" % (ievent,current_event_duration,duration_cutoff,efolding_cutoff_pct,tol_in))
-                        
-            #             print("\tEvent at (i=%i) was ended because of 2 reasons:" % ievent)
-            #             print("\t\t1. Time Elapsed since last event (%i) > %.2f (%.2f of the E-Folding Time %.2f)" % (dt_since_last_exceedence,duration_cutoff,efolding_cutoff_pct,tol_in))
-            #             print("\t\t2. Time Elapsed since last event (%i) > current event duration (%i)" % (dt_since_last_exceedence,current_event_duration))
-                    
-            #         event_combine.append(event_merge) # End the previous Event and start anew
-            #         event_merge = [ievent,] # Start a new event
-            #         continue
-            # # End Version Two ======================== Compare Time to Next Event to % of E-Folding =========================================
-            
-            # # Version Three ======================== Compare Time to Next Event to Event Duration =========================================
-
-            # if (use_efolding) and (efolding_cutoff_pct is not None): # Apply Additional Criteria
-            #     if len(event_merge) == 1:
-            #         current_event_duration = 1
-            #     else:
-            #         current_event_duration = event_merge[-1] - event_merge[0] + 1 # Elapsed time since last event
-            #     duration_over_dt       = current_event_duration / dt_since_last_exceedence
-
-            #     if ( duration_over_dt < efolding_cutoff_pct ) and (dt_since_last_exceedence > current_event_duration):
-            #         if verbose:
-            #             print("ievent = %i, event start = %i" % (ievent,event_merge[0]))
-            #             #print("\tEvent at (i=%i) was ended because the current duration (%i) exceeds %.2f (%.2f of the E-Folding Time %.2f)" % (ievent,current_event_duration,duration_cutoff,efolding_cutoff_pct,tol_in))
-            #             print("\tEvent at (i=%i) was ended because of 2 reasons:" % ievent)
-            #             print("\t\t1. Ratio of [Event Duration, %i] / [Time to Next Event, %i] is %.2f < %.2f" % (current_event_duration,dt_since_last_exceedence,duration_over_dt,efolding_cutoff_pct))
-            #             print("\t\t2. Time Elapsed since last event (%i) > current event duration (%i)" % (dt_since_last_exceedence,current_event_duration))
-                    
-            #         event_combine.append(event_merge) # End the previous Event and start anew
-            #         event_merge = [ievent,] # Start a new event
-            #         continue
-            # # End Version Three ======================== Compare Time to Next Event to Event Duration =========================================
-
-
-            # # Version Four ========================================= Consider the integrated percentile (abs value) =========================================
-            # Integrate the current event and time to next event, and use this to decide whether or not to crop
+            # Implement Cumulative Intensity Threshold
+            # Compare the cumulative intensity of the current event to that towards the next exceedence
+            # to decide whether or not to crop the event.
             if percentile is not None:
-                current_event_integr     = np.nansum(percentile_anom[event_merge[0]:(event_merge[-1]+1)]) # Integrated Event
-                next_exceedance_integr   = np.nansum(percentile_anom[event_merge[-1]:(ievent+1)]) # Integrate to next exceedence
+                
+                current_event_integr          = np.nansum(percentile_anom[event_merge[0]:(event_merge[-1]+1)]) # Integrate current event (relative to percentile threshold)
+                values_to_next_exceedance     = baseline_anom[event_merge[-1]:(ievent+1)] # Get values towards next exceedence (relative to integration baseline)
+                
+                # Based on if event is positive or negative, compute the cumulative intensity
+                if current_event_integr >= 0: # Positive Event, take negative values below baseline
+                    id_integrate = np.where(values_to_next_exceedance <= 0)[0]
+                else: # Negative Event, take positive values above the baseline
+                    id_integrate = np.where(values_to_next_exceedance > 0)[0]
+                next_exceedance_integr = np.nansum(values_to_next_exceedance[id_integrate])
+                
                 if verbose:
                     print("Integral of Current Event (%.2f) vs. To Next Exceedence (%.2f)" % (current_event_integr,next_exceedance_integr))
                 
-                # Apply Additional check for next_exceedance integr based on sign of event
-                if current_event_integr >= 0: # Positive Event, make sure following drop is negative
-                    next_check = next_exceedance_integr < 0
-                elif current_event_integr < 0: # Negative Event, make sure following drop is positive
-                    next_check = next_exceedance_integr > 0
                 
-                if (np.abs(next_exceedance_integr) > np.abs(current_event_integr)) and (next_check): # Also Check for Negative Values
+                if (np.abs(next_exceedance_integr) > np.abs(current_event_integr)): # Break Event
                     if verbose:
                         print("\tAbsolute Value of Next Exceedance Integral > Current Event, splitting...")
                     event_combine.append(event_merge) # End the previous Event and start anew
                     event_merge = [ievent,] # Start a new event
                     continue
-            # End Version Four ========================================= Consider the integrated percentile (abs value) =========================================
-                
-            
             
             # Otherwise, Merge the Event
             event_merge.append(ievent)
-            # if verbose:
-            #     print("%i is consecutive to previous events (%s)" % (ievent,event_merge))
+            
+            # End Cumulative Intensity Threshold  =========================================
+            
         else: # Otherwise, just add event and merge
             event_combine.append(event_merge)
             event_merge = [ievent,] # Make a new one
             # if verbose:
             #     print("Making new event sequence at %i" % (ievent))
-        
         
         prev_id = ievent
     nevents_combined = len(event_combine)
@@ -319,11 +258,13 @@ def get_rolling_threshold(timeseries,quantiles=[0.10,0.90],monthly=True):
     return thresholds
 
 def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
-                    verbose=False,tname='max',efolding_cutoff_pct=None,cumulative_intensity_criterion=None):
+                    verbose=False,tname='max',
+                    cumulative_intensity_criterion=None,integration_baseline=None):
     # # [2026.09.23] Updated output work with id_first and id_last
     # # [2026.09.24] Added event cumulative intensity as output
     # # [2026.10.12] Added option to apply cumulative_intensity_criterion
     # # [2026.11.04] Added option to directly supply baseline via [cumulative_intensity_criterion] to calculate cumulative intensity
+    # # [2026.11.10] Modified to apply different [ingegration_baseline] for cumulative intensity calculations
     if eventid_max is None:
         eventid_max = int(len(timeseries)*0.25)
         # Note that this triggers error with pad_nan if max # of events > eventid_max
@@ -349,10 +290,11 @@ def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
     if cumulative_intensity_criterion is not None:
         if verbose:
             print("Using Integrated Threshold...")
-        event_combine   = combine_consecutive_events(timeseries,event_indices,tol=tol,verbose=verbose,efolding_cutoff_pct=efolding_cutoff_pct,
-                                                     percentile=cumulative_intensity_criterion)
+        event_combine   = combine_consecutive_events(timeseries,event_indices,tol=tol,verbose=verbose,
+                                                     percentile=cumulative_intensity_criterion,
+                                                     integration_baseline=integration_baseline)
     else:
-        event_combine   = combine_consecutive_events(timeseries,event_indices,tol=tol,verbose=verbose,efolding_cutoff_pct=efolding_cutoff_pct)
+        event_combine   = combine_consecutive_events(timeseries,event_indices,tol=tol,verbose=verbose)
     metrics_out     = retrieve_event_metrics_arr(event_combine,timeseries,tname=tname)
     
     # For Output Variables, Pad with NaN #Enter the Amount
