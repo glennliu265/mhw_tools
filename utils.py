@@ -69,7 +69,7 @@ def arr2da(metricsout):
     dsout['nevents'] = nevents
     return dsout
 
-def combine_consecutive_events(timeseries,event_indices,tol=1,verbose=True,
+def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=True,
                                percentile=None,integration_baseline=None):
     """
     Given a timeseries of anomalies and indices of exceendences, merge each into coherent events using a duration tolerance [tol]
@@ -81,6 +81,8 @@ def combine_consecutive_events(timeseries,event_indices,tol=1,verbose=True,
         1-D Timeseries of an anomaly.
     event_indices : Array of int [time]
         Indices of each exceendence.
+    positive : BOOL
+        Sign of the event (True for Max/Positive, False for Min/Negative)
     tol : Int or Array, optional
         One of several options to merge events if [time to next exceedance] < tol
             - Int              --> Max allowable # of days/months to separate events.
@@ -179,14 +181,18 @@ def combine_consecutive_events(timeseries,event_indices,tol=1,verbose=True,
             # to decide whether or not to crop the event.
             if percentile is not None:
                 
-                current_event_integr          = np.nansum(percentile_anom[event_merge[0]:(event_merge[-1]+1)]) # Integrate current event (relative to percentile threshold)
+                values_current_event          = percentile_anom[event_merge[0]:(event_merge[-1]+1)] # Get Values for Current Event
                 values_to_next_exceedance     = baseline_anom[event_merge[-1]:(ievent+1)] # Get values towards next exceedence (relative to integration baseline)
                 
                 # Based on if event is positive or negative, compute the cumulative intensity
-                if current_event_integr >= 0: # Positive Event, take negative values below baseline
-                    id_integrate = np.where(values_to_next_exceedance <= 0)[0]
-                else: # Negative Event, take positive values above the baseline
-                    id_integrate = np.where(values_to_next_exceedance > 0)[0]
+                if positive: # Positive Event, 
+                    id_current   = np.where(values_current_event >= 0)[0]     # Sum positive values for current event
+                    id_integrate = np.where(values_to_next_exceedance <= 0)[0] # take negative values below baseline
+                else: # Negative Event, 
+                    id_current   = np.where(values_current_event <= 0)[0]     # Sum negative values for current event
+                    id_integrate = np.where(values_to_next_exceedance > 0)[0] # take positive values above the baseline
+                
+                current_event_integr   = np.nansum(values_current_event[id_current])
                 next_exceedance_integr = np.nansum(values_to_next_exceedance[id_integrate])
                 
                 if verbose:
@@ -290,11 +296,11 @@ def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
     if cumulative_intensity_criterion is not None:
         if verbose:
             print("Using Integrated Threshold...")
-        event_combine   = combine_consecutive_events(timeseries,event_indices,tol=tol,verbose=verbose,
+        event_combine   = combine_consecutive_events(timeseries,event_indices,positive,tol=tol,verbose=verbose,
                                                      percentile=cumulative_intensity_criterion,
                                                      integration_baseline=integration_baseline)
     else:
-        event_combine   = combine_consecutive_events(timeseries,event_indices,tol=tol,verbose=verbose)
+        event_combine   = combine_consecutive_events(timeseries,event_indices,positive,tol=tol,verbose=verbose)
     metrics_out     = retrieve_event_metrics_arr(event_combine,timeseries,tname=tname)
     
     # For Output Variables, Pad with NaN #Enter the Amount
