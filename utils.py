@@ -70,10 +70,277 @@ def arr2da(metricsout):
     return dsout
 
 def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=True,
+                                percentile=None,integration_baseline=None,min_duration=5,return_steps=False):
+    """
+    Given a timeseries of anomalies and indices of exceendences, merge each into coherent events using a duration tolerance [tol]
+    and an optional integrated intensity if the [percentile] is provided.
+    
+    Parameters
+    ----------
+    
+    timeseries : Array/Numeric [time]
+        1-D Timeseries of an anomaly.
+    event_indices : Array of int [time]
+        Indices of each exceendence.
+    positive : BOOL
+        Sign of the event (True for Max/Positive, False for Min/Negative)
+    tol : Int or Array, optional
+        One of several options to merge events if [time to next exceedance] < tol
+            - Int              --> Max allowable # of days/months to separate events.
+            - Array of Numeric --> Tolerance thresholds for either monthly data (12 values) or daily data (365 values)
+        The default is 1 (Int threshold).
+    verbose : BOOL, optional 
+        True to output verbose comments. The default is True.
+    percentile          : Array/Numeric [time], optional
+        Percentile values used to identify the exceedances. If supplied, implements integrated intensity criteria. 
+        Note that this has only been implemented for positive events. Need to adjust sign for negative check...
+        The default is None (i.e. do not apply cumulative intensity criteria).
+    integration_baseline : Array/Numeric [time], optional
+        Baseline for computed integrated intensity to the next exceedence. Defaults to using the percentile definition.
+        Note that the integrated intensity for the current event is always computed relative to the [percentile] baseline
+        while the integrated intensity to the next exceedence is computed relative to the [integration_baseline].
+    min_duration : Numeric [Int]
+        For Hobday definition, minimum duration of events to prompt merging
+    return_step : BOOL
+        Set to True to return all steps (merged event, consecutive events, exceedances,)
+        
+    Returns
+    -------
+    event_combine : Nested list containing indices for each event, 
+        List of lists, where each inner list contains the exceedances grouped together for 1 event.
+    
+    """
+    
+    # Make some adjustments based on the tolerance
+    # Note: Asssumes timeseries has an even number of years or is evenly divisible...
+    # Copied from [GOA_Event_Combine_Testing.ipynb] on 2026.10.13
+    if type(tol) != int: # Tolerance is NOT just 1 value
+        use_efolding = True
+        if len(tol) == 12: # Monthly E-Folding Tolerance
+            # Tolerance Applied by Month
+            nyrs     = int(len(timeseries)/12)
+            tolcheck = np.tile(np.arange(1,13,1),nyrs)
+            if len(timeseries)%12 != 0:
+                print("Warning, Timeseries is not evenly divisible by 12, indexing errors may result.")
+        elif len(tol) == 365: # Daily E-folding Tolerance
+            # Tolerance Applied by Day of Year
+            nyrs     = int(len(timeseries)/365)
+            tolcheck = np.tile(np.arange(1,366,1),nyrs)
+            if len(timeseries)%365 != 0:
+                print("Warning, Timeseries is not evenly divisible by 365, indexing errors may result.")
+        else:
+            print("Invalid size for Tol... must be either a constant or array of 12 (monthly) or 365 (daily)")
+    else:
+        use_efolding = False
+        tolcheck = None
+    
+    if percentile is not None: # Get Difference from Percentile
+        percentile_anom = timeseries - percentile
+        if integration_baseline is None:
+            if verbose:
+                print("Integration Baseline for cumulative intensity calculation not supplied. Using percentile threshold...")
+            baseline_anom = percentile_anom
+        else:
+            baseline_anom   = timeseries - integration_baseline
+    
+    # Step (1): Loop through and merge Exceedences that are consecutive
+    nevents        = len(event_indices)
+    if verbose:
+        print("----------------------------------------------------------------------------------")
+        print("Step 1. Merge Consecutive Events")
+    events_merged_consecutive  = []
+    time_to_next_exceedance    = []
+    event_duration0            = []
+    for ii in range(nevents+1): 
+        
+        # Get the Index of the event
+        if ii == (nevents): #Last Loop: Automatically Truncate and Append (Don't Perform Check for the last event)
+            events_merged_consecutive.append(merge_array) # This is defined in previous loop
+            time_to_next_exceedance.append(dt_since_last_exceedance)
+            event_duration0.append(merge_array[-1] - merge_array[0] + 1)
+            continue                           
+        else:   
+            ievent = event_indices[ii].item()
+        
+        # First Loop: Initialize Event Merge Array and continue
+        if ii == 0: 
+            prev_id     = ievent
+            merge_array = [ievent,]
+            continue
+        
+        # Compute Time Since Last Exceedence
+        dt_since_last_exceedance = ievent - prev_id # Change in time between current index and last index
+        #print(dt_since_last_exceedance)
+        
+        if dt_since_last_exceedance == 1: # Consecutive Event, Merge. 
+            merge_array.append(ievent)
+            
+        else: # Otherwise, Break event and start New
+            events_merged_consecutive.append(merge_array)
+            time_to_next_exceedance.append(dt_since_last_exceedance)
+            dur0 = merge_array[-1] - merge_array[0] + 1
+            event_duration0.append(dur0)
+            if verbose:
+                print("\tThe following %i-day event will be merged as dt=%i:" % (dur0,dt_since_last_exceedance))
+                print("\t\t%s" % (merge_array))
+            merge_array = [ievent,] # Make an array for the next event
+    
+            
+            
+        prev_id = ievent
+        # End First 
+    nevents_consecutive = len(events_merged_consecutive)
+    if verbose:
+        print("Merged %i exceedences to %i consecutive events" % (nevents,nevents_consecutive))
+        print("----------------------------------------------------------------------------------")
+    
+        print("Step 2. Merge events based on separation and duration")
+    
+    # Step (2): Apply Additional Merging if Criteria is Satisfied (Hobday)
+    events_merged = []
+    for ie in range(nevents_consecutive):
+        
+        # Get Needed Information
+        eventids   = events_merged_consecutive[ie] # Current Event Indices
+        dt         = time_to_next_exceedance[ie]   # Time to Next Exceedence
+        
+        # First Loop, Initialize Merge Array
+        if ie == 0:
+            merge_array = eventids #
+        
+        # # Apply Hobday et al. 2016 Protocol ======================================
+        if not use_efolding: # Tolerance is single value, so apply Hobday et al Approach
+            print("Using Hobday Definition for Merging")
+            # Get Duration for Hobday Defintion
+            dur0       = event_duration0[ie]
+            if ie == (nevents_consecutive-1):
+                dur1       = 0  # Set to Zero, last loop will not be checked
+            else: # Otherwise, Check duration of next event
+                dur1       = event_duration0[ie+1]
+            
+            # Event separated by 2 or less days
+            # Subsequent event must be 5 days or longer for merge
+            if ie != 0: # Start Checking from the 2nd Event Onwards. 
+                if (dt <= tol) and (dur1 >= min_duration) and (dur0 >= min_duration):
+                    merge_array = merge_array + eventids
+                    print("\tMerging event because ( dt (%i) <=%i ) and ( durations of current/next event (%i/%i) >= %i )" % (dt,tol,dur0,dur1,min_duration))
+                    print("\t\t%s" % (merge_array))
+                else: # Break current event and start new array
+                    print("\tEvent will not be merged: %s" % merge_array)
+                    events_merged.append(merge_array) 
+                    merge_array = eventids # Re-initialize Merge Array
+            # For Last Loop, automatically append the array...
+            if (ie == nevents_consecutive-1): 
+                # Append Last Array 
+                print("\tAppending Last Event: %s" % merge_array)
+                events_merged.append(merge_array)
+            continue
+        # =========================================================================
+        
+        # # Apply E-folding and Cumulative Intensity Protocols ======================  
+        else: # 
+            
+            # As with above, start checking from 2nd event onwards, looking back
+            if ie != 0: 
+                
+                id_event_end   = merge_array[-1]        # Get Last Index of current event
+                id_next_start  = eventids[0]            # Get First Index of next event
+                event_category = tolcheck[id_event_end] # Get Day or month
+                tol_in         = tol[event_category-1]  # Get E-Folding Threshold -1 for Python Indexing
+                
+                dt0            = time_to_next_exceedance[ie-1]   # Check Gap with previous event (looking backwards)
+                
+                
+                
+                # Double Check Differences ------------
+                manual_dt = id_next_start - id_event_end
+                if manual_dt != dt0:
+                    if verbose:
+                        print("Warning, Manually calculated difference (%i - %i = %i) != saved one (%i)...." % (id_next_start,id_event_end,manual_dt,dt0))
+                
+                
+                # -------------------------------------
+                # Apply E-Folding Threshold
+                if dt0 <= tol_in: # Time between events is less than e-folding
+                    
+                    # Implement Cumulative Intensity Criteria ---------------
+                    # Compare the cumulative intensity of the current event to that towards the next exceedence
+                    # to decide whether or not to crop the event.
+                    if percentile is not None:
+                        if verbose:
+                            print("Cumulative Intensity Criteria will be applied")
+                        values_current_event      = percentile_anom[merge_array[0]:(merge_array[-1]+1)] # Get Values for Current Event
+                        values_to_next_exceedance = baseline_anom[id_event_end:(id_next_start+1)] # Get values towards next exceedence (relative to integration baseline)
+    
+                        # Based on if event is positive or negative, compute the cumulative intensity
+                        if positive: # Positive Event, 
+                            id_current   = np.where(values_current_event >= 0)[0]     # Sum positive values for current event
+                            id_integrate = np.where(values_to_next_exceedance <= 0)[0] # take negative values below baseline
+                        else: # Negative Event, 
+                            id_current   = np.where(values_current_event <= 0)[0]     # Sum negative values for current event
+                            id_integrate = np.where(values_to_next_exceedance > 0)[0] # take positive values above the baseline
+                        current_event_integr   = np.nansum(values_current_event[id_current])
+                        next_exceedance_integr = np.nansum(values_to_next_exceedance[id_integrate])
+                        
+                        if verbose:
+                            print("\tIntegral of Current Event (%.2f) vs. To Next Exceedence (%.2f) @ i=%i" % (current_event_integr,next_exceedance_integr,id_event_end))
+                        
+                        # Break if it does not satisfy cumulative intensity criteria
+                        if (np.abs(next_exceedance_integr) > np.abs(current_event_integr)): # Break Event
+                            if verbose:
+                                print("\tAbsolute Value of Next Exceedance Integral > Current Event @ i=%i, splitting..." % (id_event_end))
+                                print("\tEvent will not be merged: %s" % merge_array)
+                            events_merged.append(merge_array) 
+                            merge_array = eventids # Re-initialize Merge Array
+                        
+                        else:
+                            #Merge as it satisfies the Cumulative Threshold
+                            merge_array = merge_array + eventids
+                            if verbose:
+                                print("\tAbsolute Value of Next Exceedance Integral < Current Event @ i=%i, Merging..." % (id_event_end))
+                    # End Cumulative Threshold   
+                    # ------------------------------------------------------------
+                    else:
+                        # Otherwise, Merge Event as it satisfies the E-Folding Criteria
+                        merge_array = merge_array + eventids
+                        if verbose:
+                            print("\tMerging event @ i=%i because ( dt (%i) <=%.2f )" % (id_event_end,dt0,tol_in))
+                            #print("\t\t%s" % (merge_array))
+                    
+                else: # Break Event if it does not satisfy E-Folding Criteria
+                    if verbose:
+                        print("\tEvent @i=%i will not be merged (dt (%i) > %.2f)" % (id_event_end,dt0,tol_in))
+                    events_merged.append(merge_array) 
+                    merge_array = eventids # Re-initialize Merge Array
+                    
+                # End Check Loop
+                
+            if (ie == nevents_consecutive-1): 
+                # Append Last Array
+                if verbose:
+                    print("\tAppending Last Event: %s" % merge_array)
+                events_merged.append(merge_array)
+            continue # End Tol_Check/Efolding Loop
+        # =========================================================================
+        
+    
+    nevents_merged      = len(events_merged)
+    if verbose:
+        print("Event Count after merge %i --> %i" % (nevents_consecutive,nevents_merged))
+        print("----------------------------------------------------------------------------------")
+    if return_steps:
+        return events_merged,events_merged_consecutive,event_indices
+    return events_merged
+
+
+def combine_consecutive_events_old(timeseries,event_indices,positive,tol=1,verbose=True,
                                percentile=None,integration_baseline=None):
     """
     Given a timeseries of anomalies and indices of exceendences, merge each into coherent events using a duration tolerance [tol]
     and an optional integrated intensity if the [percentile] is provided.
+    
+    Update 2026.11.11 --> added _old as I have updated/corrected the hobday definition and fixed reference to tolerance threshold
+    (need to take index for last event)
     
     Parameters
     ----------
@@ -168,7 +435,7 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
             tol_in = tol
         else: # Tolerance is an Array (day of year, or month)
             
-            event_category = tolcheck[ievent] # Check day or month of event
+            event_category = tolcheck[prev_id] # Check day or month of event
             tol_in         = tol[event_category-1]    # -1 for Python Indexing
 
         
