@@ -75,6 +75,8 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
     Given a timeseries of anomalies and indices of exceendences, merge each into coherent events using a duration tolerance [tol]
     and an optional integrated intensity if the [percentile] is provided.
     
+    Rewritten on 11.11.2026, see [Correct_Hobday_Definition.ipynb] for debugging scripts (albeit unorganized)
+    
     Parameters
     ----------
     
@@ -210,7 +212,8 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
         
         # # Apply Hobday et al. 2016 Protocol ======================================
         if not use_efolding: # Tolerance is single value, so apply Hobday et al Approach
-            print("Using Hobday Definition for Merging")
+            if verbose:
+                print("Using Hobday Definition for Merging")
             # Get Duration for Hobday Defintion
             dur0       = event_duration0[ie]
             if ie == (nevents_consecutive-1):
@@ -223,16 +226,19 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
             if ie != 0: # Start Checking from the 2nd Event Onwards. 
                 if (dt <= tol) and (dur1 >= min_duration) and (dur0 >= min_duration):
                     merge_array = merge_array + eventids
-                    print("\tMerging event because ( dt (%i) <=%i ) and ( durations of current/next event (%i/%i) >= %i )" % (dt,tol,dur0,dur1,min_duration))
-                    print("\t\t%s" % (merge_array))
+                    if verbose:
+                        print("\tMerging event because ( dt (%i) <=%i ) and ( durations of current/next event (%i/%i) >= %i )" % (dt,tol,dur0,dur1,min_duration))
+                        print("\t\t%s" % (merge_array))
                 else: # Break current event and start new array
-                    print("\tEvent will not be merged: %s" % merge_array)
+                    if verbose:
+                        print("\tEvent will not be merged: %s" % merge_array)
                     events_merged.append(merge_array) 
                     merge_array = eventids # Re-initialize Merge Array
             # For Last Loop, automatically append the array...
             if (ie == nevents_consecutive-1): 
                 # Append Last Array 
-                print("\tAppending Last Event: %s" % merge_array)
+                if verbose:
+                    print("\tAppending Last Event: %s" % merge_array)
                 events_merged.append(merge_array)
             continue
         # =========================================================================
