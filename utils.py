@@ -190,9 +190,7 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
                 print("\tThe following %i-day event will be merged as dt=%i:" % (dur0,dt_since_last_exceedance))
                 print("\t\t%s" % (merge_array))
             merge_array = [ievent,] # Make an array for the next event
-    
-            
-            
+        
         prev_id = ievent
         # End First 
     nevents_consecutive = len(events_merged_consecutive)
@@ -590,7 +588,8 @@ def get_rolling_threshold(timeseries,quantiles=[0.10,0.90],monthly=True):
 
 def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
                     verbose=False,tname='max',
-                    cumulative_intensity_criterion=None,integration_baseline=None):
+                    cumulative_intensity_criterion=None,
+                    integration_baseline=None,cull_first=True,min_duration=5):
     # # [2026.09.23] Updated output work with id_first and id_last
     # # [2026.09.24] Added event cumulative intensity as output
     # # [2026.10.12] Added option to apply cumulative_intensity_criterion
@@ -623,9 +622,12 @@ def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
             print("Using Integrated Threshold...")
         event_combine   = combine_consecutive_events(timeseries,event_indices,positive,tol=tol,verbose=verbose,
                                                      percentile=cumulative_intensity_criterion,
-                                                     integration_baseline=integration_baseline)
+                                                     integration_baseline=integration_baseline,
+                                                     cull_first=cull_first,min_duration=min_duration)
     else:
-        event_combine   = combine_consecutive_events(timeseries,event_indices,positive,tol=tol,verbose=verbose)
+        event_combine   = combine_consecutive_events(timeseries,event_indices,positive,tol=tol,verbose=verbose,
+                                                     cull_first=cull_first,min_duration=min_duration
+                                                     )
     metrics_out     = retrieve_event_metrics_arr(event_combine,timeseries,tname=tname)
     
     # For Output Variables, Pad with NaN #Enter the Amount
