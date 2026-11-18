@@ -15,6 +15,7 @@ List of Functions
     arr2da                     : Transform output of [id_extremes_arr] from array into DataArray
     combine_consecutive_events : Merge events based on duration and intensity criteria
     cull_events_byduration     : Remove events shorter than the minimum duration
+    get_maxmean                : Get Max/Mean Composites
     get_rolling_threshold      : Compute climatologically varying percentile and tile to original timeseries
     id_extremes_arr            : Identify Events from exceedences of percentile, then merge and get key metrics
     retrieve_event_metrics_arr : Get event metrics given output of [combine_consecutive_events] within [id_extremes_arr]
@@ -513,6 +514,49 @@ def cull_events_byduration(dsin,min_duration=5):
     ds = ds.isel(eventid=id_above)
     ds['nevents'] = nevents_new
     return ds
+
+def get_max_mean(ds,dstime,sign='positive',min_duration=1,countevents=True,below_min=False):
+    # Composite information across events
+    # *Note: might need to check functionality of sign and the countevents option...
+    # Update [2026.11.12] Add ability to composite values below the minimum
+    # Update [2026.09.11] Add Cumulative Intensity
+
+    
+    if (min_duration > 1):
+        if (below_min is False): # Set values shorter than min duration to NaN
+            #print("Dropping events less than %i days" % min_duration)
+            print("Making composites for events >= %i days" % min_duration)
+            ds            = xr.where(ds.duration <= min_duration,np.nan,ds)
+        else: # Isolate just the shorter events
+            print("Making composites for events <  %i days" % min_duration)
+            ds            = xr.where(ds.duration > min_duration,np.nan,ds)
+        # Recount the Frequency
+        frequency  = xr.where(~np.isnan(ds.duration),1,np.nan)
+        frequency  = frequency.sum('eventid').rename('frequency')
+        frequency  =  xr.where(frequency == 0.,np.nan,frequency)
+        
+    else:
+        frequency     = ds.nevents.rename('frequency')
+
+    
+    # Get Max and Mean for Key Variables (intensity, duration, frequency)
+    mean_intensity = ds.event_mean.mean('eventid').rename('mean_intensity')
+    max_intensity  = ds.event_max.mean('eventid').rename('max_intensity')
+
+
+    # Composite Cumulative Intensity (take mean across all events)
+    mean_cumulative_intensity = ds.cumulative_intensity.mean('eventid')
+    
+    mean_duration = ds.duration.mean('eventid').rename('mean_duration')
+    max_duration  = ds.duration.max('eventid').rename('max_duration')
+
+    dslist = [mean_intensity,max_intensity,mean_duration,max_duration,frequency,mean_cumulative_intensity]
+    # Also Calculate the Annual Frequency
+    if countevents:
+        count_by_year = count_events_byyear(ds.id_max,dstime).mean('year').rename('count_by_year')
+        dslist = dslist + [count_by_year,]
+        return xr.merge([mean_intensity,max_intensity,mean_duration,max_duration,frequency,count_by_year])
+    return xr.merge(dslist)
 
 def get_rolling_threshold(timeseries,quantiles=[0.10,0.90],monthly=True):
     "Compute climatologically-varying percentile threshold and tile to original timeseries"
