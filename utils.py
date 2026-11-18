@@ -71,7 +71,8 @@ def arr2da(metricsout):
     return dsout
 
 def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=True,
-                                percentile=None,integration_baseline=None,min_duration=5,return_steps=False):
+                                percentile=None,integration_baseline=None,min_duration=5,return_steps=False,
+                                cull_first=False):
     """
     Given a timeseries of anomalies and indices of exceendences, merge each into coherent events using a duration tolerance [tol]
     and an optional integrated intensity if the [percentile] is provided.
@@ -106,6 +107,8 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
         For Hobday definition, minimum duration of events to prompt merging
     return_step : BOOL
         Set to True to return all steps (merged event, consecutive events, exceedances,)
+    cull_first : BOOL
+        Set to True to remove events shorter than min_duration before merging...
         
     Returns
     -------
@@ -206,6 +209,12 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
         # Get Needed Information
         eventids   = events_merged_consecutive[ie] # Current Event Indices
         dt         = time_to_next_exceedance[ie]   # Time to Next Exceedence
+        
+        # [Optional] Cull event if less than minimum duration
+        if (cull_first) and (len(eventids) < min_duration):
+            if verbose:
+                print("Removing event %i as duration (%i) < %i" % (ie,len(eventids),min_duration))
+            continue
         
         # First Loop, Initialize Merge Array
         if ie == 0:
@@ -319,7 +328,6 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
                         print("\tEvent @i=%i will not be merged (dt (%i) > %.2f)" % (id_event_end,dt0,tol_in))
                     events_merged.append(merge_array) 
                     merge_array = eventids # Re-initialize Merge Array
-                    
                 # End Check Loop
                 
             if (ie == nevents_consecutive-1): 
