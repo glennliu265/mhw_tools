@@ -216,6 +216,8 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
                 # Break previous event
                 events_merged.append(merge_array) 
                 merge_array = eventids # Re-initialize Merge Array
+            else:
+                merge_array = eventids # Make merge_array (for first iteration)
             
             if verbose:
                 print("Removing event %i as duration (%i) < %i" % (ie,len(eventids),min_duration))
