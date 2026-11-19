@@ -202,6 +202,7 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
     
     # Step (2): Apply Additional Merging if Criteria is Satisfied (Hobday)
     events_merged = []
+    merge_array   = [] # Set to Zero to reset from previous loop
     for ie in range(nevents_consecutive):
         
         # Get Needed Information
@@ -212,13 +213,11 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
         if (cull_first) and (len(eventids) < min_duration):
             
             # Check if merge-array already exists
-            if "merge_array" in locals():
-                # Break previous event if it exists
-                if (len(merge_array) != 0): # Dont Append Empty Events
-                    events_merged.append(merge_array) 
-                    merge_array = [] #eventids # Re-initialize Merge Array
-            else:
-                merge_array = [] # eventids # Make merge_array (for first iteration)
+            #if "merge_array" in locals():
+            # Break previous event if it exists
+            if (len(merge_array) != 0): # Dont Append Empty Events
+                events_merged.append(merge_array) 
+                merge_array = [] #eventids # Re-initialize Merge Array
             
             if verbose:
                 print("Removing event %i as duration (%i) < %i" % (ie,len(eventids),min_duration))
