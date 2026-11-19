@@ -216,7 +216,7 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
                 # Break previous event
                 events_merged.append(merge_array) 
                 merge_array = [] #eventids # Re-initialize Merge Array
-            else:
+            else:   
                 merge_array = [] # eventids # Make merge_array (for first iteration)
             
             if verbose:
@@ -224,8 +224,9 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
             continue
         
         # First Loop, Initialize Merge Array
-        if ie == 0:
-            merge_array = eventids #
+        if (ie == 0) or (len(merge_array) == 0):
+            merge_array = eventids # Make Merge Array and Start Next Loop (no need to break)
+            continue 
         
         # # Apply Hobday et al. 2016 Protocol ======================================
         if not use_efolding: # Tolerance is single value, so apply Hobday et al Approach
