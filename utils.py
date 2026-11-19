@@ -39,6 +39,7 @@ Created on Wed Aug  5 14:20:35 2026
 import numpy as np
 import glob
 import xarray as xr
+import time
 
 
 
@@ -846,3 +847,60 @@ def pad_nan(indata,nmax):
     if ndata > nmax:
         print("Warning: # of identified events (%i) exceeds that of the maximum pad (%i). Please set nmax manually." % (ndata,nmax))
     return np.pad(indata,(0,nmax-ndata),'constant',constant_values=np.nan)
+
+# Apply as xarray array
+def count_events_byyear(dsin,dstime,ystart=None,yend=None):
+    # Took 11.3 sec (compared to 911.58 sec)      
+    # dstime = xr.DataArray(dstime,coords=dict(time=dstime),
+    #                       dims=dict(time=dstime))
+    
+    if ystart is None:
+        ystart = dstime[0].year
+    if yend is None:
+        yend   = dstime[-1].year
+    years  = np.arange(ystart,yend+1)
+    funcinb = lambda a,b: calc_annual_freq_np(a,b,ystart,yend)
+    
+    st = time.time()
+    count_out = xr.apply_ufunc(
+        funcinb,
+        dsin,
+        dstime, 
+        input_core_dims=[['eventid'],['time']],
+        output_core_dims=[['year']],
+        vectorize=True
+        )
+    print("Counted events in %.2fs" % (time.time()-st))
+    return count_out
+
+def calc_annual_freq_np(eventid,dstime,ystart=np.nan,yend=np.nan,verbose=False):
+    # First Detect Year
+    if np.isnan(ystart):# is None:
+        ystart = dstime[0].year
+    if np.isnan(yend):#yend is None:
+        yend   = dstime[-1].year
+    years = np.arange(ystart,yend+1)
+    
+    # Cull NaNs from Events
+    eventid     = eventid[~np.isnan(eventid)].astype(int)
+    if len(eventid) == 0:
+        #print("NaN Point Dected")
+        return np.nan * np.ones(len(years))
+    
+    # Then get times, years, counts
+    event_times      = dstime[eventid]
+    event_times_year = [tt.year for tt in event_times]
+    ybins,ycounts    = np.unique(event_times_year,return_counts=True)
+    
+    # Looping by year, retrieve count or replace with zero
+    count = np.zeros(len(years))  # [years]
+    for yy in range(len(years)):
+        year = years[yy]
+        try:
+            iyear     = list(ybins).index(year)
+            count[yy] = ycounts[iyear]
+        except:
+            if verbose:
+                print("No Count found for year %s" % year)
+            continue
+    return count
