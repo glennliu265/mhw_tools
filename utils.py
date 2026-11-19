@@ -214,8 +214,9 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
             # Check if merge-array already exists
             if "merge_array" in locals():
                 # Break previous event
-                events_merged.append(merge_array) 
-                merge_array = [] #eventids # Re-initialize Merge Array
+                if (len(merge_array) != 0): # Dont Append Empty Events
+                    events_merged.append(merge_array) 
+                    merge_array = [] #eventids # Re-initialize Merge Array
             else:   
                 merge_array = [] # eventids # Make merge_array (for first iteration)
             
