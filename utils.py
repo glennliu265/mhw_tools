@@ -213,11 +213,11 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
             
             # Check if merge-array already exists
             if "merge_array" in locals():
-                # Break previous event
+                # Break previous event if it exists
                 if (len(merge_array) != 0): # Dont Append Empty Events
                     events_merged.append(merge_array) 
                     merge_array = [] #eventids # Re-initialize Merge Array
-            else:   
+            else:
                 merge_array = [] # eventids # Make merge_array (for first iteration)
             
             if verbose:
@@ -255,6 +255,8 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
                     merge_array = eventids # Re-initialize Merge Array
             # For Last Loop, automatically append the array...
             if (ie == nevents_consecutive-1): 
+                if (cull_first) and (len(merge_array) <= min_duration):
+                    continue # Do not Merge if below min duration 
                 # Append Last Array 
                 if verbose:
                     print("\tAppending Last Event: %s" % merge_array)
@@ -340,6 +342,8 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
                 # End Check Loop
                 
             if (ie == nevents_consecutive-1): 
+                if (cull_first) and (len(merge_array) <= min_duration):
+                    continue # Do not Merge if below min duration 
                 # Append Last Array
                 if verbose:
                     print("\tAppending Last Event: %s" % merge_array)
