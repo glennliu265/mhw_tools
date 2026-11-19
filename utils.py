@@ -603,7 +603,7 @@ def get_rolling_threshold(timeseries,quantiles=[0.10,0.90],monthly=True):
 def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
                     verbose=False,tname='max',
                     cumulative_intensity_criterion=None,
-                    integration_baseline=None,cull_first=True,min_duration=5):
+                    integration_baseline=None,cull_first=False,min_duration=5):
     # # [2026.09.23] Updated output work with id_first and id_last
     # # [2026.09.24] Added event cumulative intensity as output
     # # [2026.10.12] Added option to apply cumulative_intensity_criterion
