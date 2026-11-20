@@ -20,6 +20,10 @@ List of Functions
     id_extremes_arr            : Identify Events from exceedences of percentile, then merge and get key metrics
     retrieve_event_metrics_arr : Get event metrics given output of [combine_consecutive_events] within [id_extremes_arr]
     
+    E-Folding Calculation
+    -------------------------
+    get_efolding_interp        : Interpolate to get e-folding value
+    
     General Helper Functions
     ------------------------
     get_paths                  : Get path to lores/hires CESM simulations on glade, account for ensemble names
@@ -536,6 +540,26 @@ def cull_events_byduration(dsin,min_duration=5):
     ds['nevents'] = nevents_new
     return ds
 
+def get_efolding_interp(acfin,smooth=0,value=None):
+    if np.any(np.isnan(acfin)):
+        return np.nan
+    if smooth > 0:
+        acfin = movmean(acfin,smooth)
+    
+    if value is None: # Default to E-folding
+        efoldcorr = 1/np.exp(1)
+    else:
+        efoldcorr = value
+    try:
+        iafter  = np.where(acfin<efoldcorr)[0][0]
+        ibefore = iafter-1
+        xget    = np.interp(efoldcorr,[acfin[iafter],acfin[ibefore]],[iafter,ibefore])
+    except:
+        # Does not go below this value..
+        xget    = len(acfin)
+    ##plt.plot([acfin[ibefore],acfin[iafter]],[ibefore,iafter]),plt.plot(efoldcorr,xget,marker="x"),ibefore,xget
+    return xget
+
 def get_max_mean(ds,dstime,sign='positive',min_duration=1,countevents=True,below_min=False):
     # Composite information across events
     # *Note: might need to check functionality of sign and the countevents option...
@@ -904,3 +928,11 @@ def calc_annual_freq_np(eventid,dstime,ystart=np.nan,yend=np.nan,verbose=False):
                 print("No Count found for year %s" % year)
             continue
     return count
+
+
+def movmean(timeseries,N):
+    # Calculate moving/running mean across N values
+    # Copied from Proc
+    return np.convolve(timeseries,np.ones(N)/N,mode='same')
+
+
