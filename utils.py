@@ -307,7 +307,7 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
                         if positive: # Positive Event, 
                             id_current   = np.where(values_current_event >= 0)[0]     # Sum positive values for current event
                             id_integrate = np.where(values_to_next_exceedance <= 0)[0] # take negative values below baseline
-                        else: # Negative Event, 
+                        else:        # Negative Event, 
                             id_current   = np.where(values_current_event <= 0)[0]     # Sum negative values for current event
                             id_integrate = np.where(values_to_next_exceedance > 0)[0] # take positive values above the baseline
                         current_event_integr   = np.nansum(values_current_event[id_current])
@@ -366,7 +366,7 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
 
 
 def combine_consecutive_events_old(timeseries,event_indices,positive,tol=1,verbose=True,
-                               percentile=None,integration_baseline=None):
+                               percentile=None,integration_baseline=None,integrate_sign_only=True):
     """
     Given a timeseries of anomalies and indices of exceendences, merge each into coherent events using a duration tolerance [tol]
     and an optional integrated intensity if the [percentile] is provided.
@@ -397,6 +397,10 @@ def combine_consecutive_events_old(timeseries,event_indices,positive,tol=1,verbo
         Baseline for computed integrated intensity to the next exceedence. Defaults to using the percentile definition.
         Note that the integrated intensity for the current event is always computed relative to the [percentile] baseline
         while the integrated intensity to the next exceedence is computed relative to the [integration_baseline].
+        
+    integrate_sign_only : BOOL
+        True (default) --> Integrate only (positive values for current event) and (negative values to next exceedance), flip for MCWs
+        False          --> Integrate all values for current / to next exceedance regardless of sign
     
     Returns
     -------
@@ -480,16 +484,21 @@ def combine_consecutive_events_old(timeseries,event_indices,positive,tol=1,verbo
             # to decide whether or not to crop the event.
             if percentile is not None:
                 
+                
                 values_current_event          = percentile_anom[event_merge[0]:(event_merge[-1]+1)] # Get Values for Current Event
                 values_to_next_exceedance     = baseline_anom[event_merge[-1]:(ievent+1)] # Get values towards next exceedence (relative to integration baseline)
                 
                 # Based on if event is positive or negative, compute the cumulative intensity
-                if positive: # Positive Event, 
-                    id_current   = np.where(values_current_event >= 0)[0]     # Sum positive values for current event
-                    id_integrate = np.where(values_to_next_exceedance <= 0)[0] # take negative values below baseline
-                else: # Negative Event, 
-                    id_current   = np.where(values_current_event <= 0)[0]     # Sum negative values for current event
-                    id_integrate = np.where(values_to_next_exceedance > 0)[0] # take positive values above the baseline
+                if integrate_sign_only:
+                    if positive: # Positive Event, 
+                        id_current   = np.where(values_current_event >= 0)[0]     # Sum positive values for current event
+                        id_integrate = np.where(values_to_next_exceedance <= 0)[0] # take negative values below baseline
+                    else: # Negative Event, 
+                        id_current   = np.where(values_current_event <= 0)[0]     # Sum negative values for current event
+                        id_integrate = np.where(values_to_next_exceedance > 0)[0] # take positive values above the baseline
+                else: # Just integrate all values within each window
+                    id_current   = np.arange(len(values_current_event)) # Just Take All
+                    id_integrate = np.arange(len(values_to_next_exceedance))
                 
                 current_event_integr   = np.nansum(values_current_event[id_current])
                 next_exceedance_integr = np.nansum(values_to_next_exceedance[id_integrate])
@@ -497,8 +506,21 @@ def combine_consecutive_events_old(timeseries,event_indices,positive,tol=1,verbo
                 if verbose:
                     print("Integral of Current Event (%.2f) vs. To Next Exceedence (%.2f)" % (current_event_integr,next_exceedance_integr))
                 
+                # Additional Sign Check if all values were integrated
+                if integrate_sign_only:
+                    sign_check = True # Signs are already considered in integration 
+                else:
+                    sign_check = False
+                    if positive:
+                        if next_exceedance_integr < 0: # Values are negative towards next exceedance (MHWs)
+                            sign_check = True
+                            # I.E. for MHWs, if integrated intensity to next exceedance is positive, still merge
+                    else:
+                        if next_exceedance_integr > 0: # Values are positive towards next exceedance (MCWs)
+                            sign_check = True
                 
-                if (np.abs(next_exceedance_integr) > np.abs(current_event_integr)): # Break Event
+                
+                if (np.abs(next_exceedance_integr) > np.abs(current_event_integr)) and sign_check: # Break Event
                     if verbose:
                         print("\tAbsolute Value of Next Exceedance Integral > Current Event, splitting...")
                     event_combine.append(event_merge) # End the previous Event and start anew
@@ -521,7 +543,6 @@ def combine_consecutive_events_old(timeseries,event_indices,positive,tol=1,verbo
     if verbose:
         print("\tCulled to %i events!" % nevents_combined)
     return event_combine
-
 
 def cull_events_byduration(dsin,min_duration=5):
     
@@ -628,12 +649,13 @@ def get_rolling_threshold(timeseries,quantiles=[0.10,0.90],monthly=True):
 def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
                     verbose=False,tname='max',
                     cumulative_intensity_criterion=None,
-                    integration_baseline=None,cull_first=False,min_duration=5):
+                    integration_baseline=None,cull_first=False,min_duration=5,integrate_sign_only=True):
     # # [2026.09.23] Updated output work with id_first and id_last
     # # [2026.09.24] Added event cumulative intensity as output
     # # [2026.10.12] Added option to apply cumulative_intensity_criterion
     # # [2026.11.04] Added option to directly supply baseline via [cumulative_intensity_criterion] to calculate cumulative intensity
-    # # [2026.11.10] Modified to apply different [ingegration_baseline] for cumulative intensity calculations
+    # # [2026.11.10] Modified to apply different [integration_baseline] for cumulative intensity calculations
+    # # [2026.11.25] Added additional toggle [integrate_sign_only] to integrate only values of particular sign for cumulative intensity
     if eventid_max is None:
         eventid_max = int(len(timeseries)*0.25)
         # Note that this triggers error with pad_nan if max # of events > eventid_max
@@ -662,7 +684,7 @@ def id_extremes_arr(timeseries,thres,positive,eventid_max=None,tol=1,
         event_combine   = combine_consecutive_events(timeseries,event_indices,positive,tol=tol,verbose=verbose,
                                                      percentile=cumulative_intensity_criterion,
                                                      integration_baseline=integration_baseline,
-                                                     cull_first=cull_first,min_duration=min_duration)
+                                                     cull_first=cull_first,min_duration=min_duration,integrate_sign_only=integrate_sign_only)
     else:
         event_combine   = combine_consecutive_events(timeseries,event_indices,positive,tol=tol,verbose=verbose,
                                                      cull_first=cull_first,min_duration=min_duration
