@@ -77,7 +77,7 @@ def arr2da(metricsout):
 
 def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=True,
                                 percentile=None,integration_baseline=None,min_duration=5,return_steps=False,
-                                cull_first=False):
+                                cull_first=False,integrate_sign_only=True):
     """
     Given a timeseries of anomalies and indices of exceendences, merge each into coherent events using a duration tolerance [tol]
     and an optional integrated intensity if the [percentile] is provided.
@@ -302,22 +302,44 @@ def combine_consecutive_events(timeseries,event_indices,positive,tol=1,verbose=T
                             print("Cumulative Intensity Criteria will be applied")
                         values_current_event      = percentile_anom[merge_array[0]:(merge_array[-1]+1)] # Get Values for Current Event
                         values_to_next_exceedance = baseline_anom[id_event_end:(id_next_start+1)] # Get values towards next exceedence (relative to integration baseline)
-    
+                        
+                        
                         # Based on if event is positive or negative, compute the cumulative intensity
-                        if positive: # Positive Event, 
-                            id_current   = np.where(values_current_event >= 0)[0]     # Sum positive values for current event
-                            id_integrate = np.where(values_to_next_exceedance <= 0)[0] # take negative values below baseline
-                        else:        # Negative Event, 
-                            id_current   = np.where(values_current_event <= 0)[0]     # Sum negative values for current event
-                            id_integrate = np.where(values_to_next_exceedance > 0)[0] # take positive values above the baseline
+                        if integrate_sign_only:
+                            if positive: # Positive Event, 
+                                id_current   = np.where(values_current_event >= 0)[0]     # Sum positive values for current event
+                                id_integrate = np.where(values_to_next_exceedance <= 0)[0] # take negative values below baseline
+                            else: # Negative Event, 
+                                id_current   = np.where(values_current_event <= 0)[0]     # Sum negative values for current event
+                                id_integrate = np.where(values_to_next_exceedance > 0)[0] # take positive values above the baseline
+                        else: # Just integrate all values within each window
+                            id_current   = np.arange(len(values_current_event)) # Just Take All
+                            id_integrate = np.arange(len(values_to_next_exceedance))
+                            
+                        
                         current_event_integr   = np.nansum(values_current_event[id_current])
                         next_exceedance_integr = np.nansum(values_to_next_exceedance[id_integrate])
+                            
                         
                         if verbose:
                             print("\tIntegral of Current Event (%.2f) vs. To Next Exceedence (%.2f) @ i=%i" % (current_event_integr,next_exceedance_integr,id_event_end))
                         
+                        
+                        # Additional Sign Check if all values were integrated
+                        if integrate_sign_only:
+                            sign_check = True # Signs are already considered in integration 
+                        else:
+                            sign_check = False
+                            if positive:
+                                if next_exceedance_integr < 0: # Values are negative towards next exceedance (MHWs)
+                                    sign_check = True
+                                    # I.E. for MHWs, if integrated intensity to next exceedance is positive, still merge
+                            else:
+                                if next_exceedance_integr > 0: # Values are positive towards next exceedance (MCWs)
+                                    sign_check = True
+                        
                         # Break if it does not satisfy cumulative intensity criteria
-                        if (np.abs(next_exceedance_integr) > np.abs(current_event_integr)): # Break Event
+                        if (np.abs(next_exceedance_integr) > np.abs(current_event_integr)) and sign_check: # Break Event
                             if verbose:
                                 print("\tAbsolute Value of Next Exceedance Integral > Current Event @ i=%i, splitting..." % (id_event_end))
                                 print("\tEvent will not be merged: %s" % merge_array)
